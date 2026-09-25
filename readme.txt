@@ -1,5 +1,5 @@
 === Pattern Wrangler - Manage Block Patterns and Pattern Categories ===
-Contributors: ronalfy
+Contributors: webdevmattcrom
 Tags: patterns, block patterns, pattern, pattern builder, synced patterns
 Requires at least: 7.0
 Tested up to: 7.1

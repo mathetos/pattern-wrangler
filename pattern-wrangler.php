@@ -1,13 +1,13 @@
 <?php
 /**
  * Plugin Name:       Pattern Wrangler
- * Plugin URI:        https://dlxplugins.com/plugins/pattern-wrangler/
+ * Plugin URI:        https://mattc.link/pattern-wrangler
  * Description:       Manage your block patterns.
  * Version:           2.6.0
  * Requires at least: 7.0
  * Requires PHP:      7.2
- * Author:            DLX Plugins
- * Author URI:        https://dlxplugins.com
+ * Author:            Roots & Fruit
+ * Author URI:        https://mattc.link/pattern-wrangler
  * License:           GPL v2 or later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       pattern-wrangler
