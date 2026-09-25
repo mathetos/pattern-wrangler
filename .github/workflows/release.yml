@@ -1,0 +1,126 @@
+name: Build Release ZIP
+
+on:
+  release:
+    types: [created]
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-zip:
+    name: Build plugin zip
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build assets
+        run: npm install && npm run build
+
+      - name: Determine version and package names
+        id: vars
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            RAW_VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ "${{ github.event_name }}" == "release" ]]; then
+            RAW_VERSION="${{ github.event.release.tag_name }}"
+          else
+            RAW_VERSION="dev-${GITHUB_SHA::7}"
+          fi
+
+          VERSION="${RAW_VERSION#v}"
+          ZIP_NAME="pattern-wrangler-${VERSION}.zip"
+          ROOT_DIR="pattern-wrangler"
+
+          echo "raw_version=${RAW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
+          echo "root_dir=${ROOT_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog body
+        id: changelog
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [[ -z "$PREV_TAG" ]]; then
+            CHANGES=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
+          fi
+
+          if [[ -z "$CHANGES" ]]; then
+            CHANGES="- No changes detected"
+          fi
+
+          NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
+          {
+            echo "## Changes in v${RELEASE_VERSION}"
+            echo
+            echo "${CHANGES}"
+          } > "${NOTES_FILE}"
+
+          echo "notes_file=${NOTES_FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create ZIP package
+        id: package
+        shell: bash
+        run: |
+          mkdir -p /tmp/plugin-release
+          rsync -av --exclude-from=".distignore" ./ "/tmp/plugin-release/${{ steps.vars.outputs.root_dir }}/"
+
+          cd /tmp/plugin-release
+          zip -r "${GITHUB_WORKSPACE}/${{ steps.vars.outputs.zip_name }}" "${{ steps.vars.outputs.root_dir }}/"
+          cd "${GITHUB_WORKSPACE}"
+
+          if [[ ! -f "${{ steps.vars.outputs.zip_name }}" ]]; then
+            echo "ZIP package was not created."
+            exit 1
+          fi
+
+          if ! unzip -l "${{ steps.vars.outputs.zip_name }}" | grep -q "${{ steps.vars.outputs.root_dir }}/"; then
+            echo "ZIP structure check failed."
+            exit 1
+          fi
+
+          echo "zip_path=${{ steps.vars.outputs.zip_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload ZIP as workflow artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: pattern-wrangler-${{ steps.vars.outputs.version }}
+          path: ${{ steps.package.outputs.zip_path }}
+
+      - name: Create or update GitHub release and attach ZIP
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.vars.outputs.raw_version }}"
+          TITLE="${TAG#v}"
+          NOTES_FILE="${{ steps.changelog.outputs.notes_file }}"
+          ZIP_PATH="${{ steps.package.outputs.zip_path }}"
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" --notes-file "${NOTES_FILE}" --title "${TITLE}"
+          else
+            gh release create "${TAG}" --title "${TITLE}" --notes-file "${NOTES_FILE}"
+          fi
+
+          gh release upload "${TAG}" "${ZIP_PATH}" --clobber
